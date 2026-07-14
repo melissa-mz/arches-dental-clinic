@@ -1,4 +1,7 @@
-FROM php:8.3-fpm
+FROM php:8.2-fpm-alpine
+
+# Installer zip, unzip et les dépendances
+RUN apk add --no-cache zip unzip
 
 # Installer Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
