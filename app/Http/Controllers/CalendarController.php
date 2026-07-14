@@ -5,28 +5,33 @@ namespace App\Http\Controllers;
 use App\Models\Appointment;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB; // Ajout pour la requête groupée
 
 class CalendarController extends Controller
 {
-    // Afficher le calendrier
+    // Afficher le calendrier (page séparée – plus utilisée si vous avez tout dans welcome)
     public function index()
     {
         return view('rdv');
     }
 
-    // Récupérer les disponibilités pour une plage de dates
+    // Récupérer les disponibilités pour une plage de dates (optimisée)
     public function availability(Request $request)
     {
         $start = Carbon::parse($request->start);
         $end = Carbon::parse($request->end);
+        $totalSlotsPerDay = 16;
+
+        // Une seule requête pour compter les RDV par date
+        $bookedCounts = Appointment::whereBetween('date', [$start, $end])
+            ->select('date', DB::raw('count(*) as total'))
+            ->groupBy('date')
+            ->pluck('total', 'date')
+            ->toArray();
+
         $availability = [];
-
-        // Paramètres : heures d'ouverture (8:30 à 16:30) avec créneaux de 30 min → 16 créneaux par jour
-        $totalSlotsPerDay = 16; // de 8:30 à 16:30 = 8h → 16 créneaux de 30 min
-
         for ($date = $start->copy(); $date <= $end; $date->addDay()) {
-            // Compter les rendez-vous déjà pris pour cette date
-            $booked = Appointment::whereDate('date', $date)->count();
+            $booked = $bookedCounts[$date->toDateString()] ?? 0;
             $remaining = max(0, $totalSlotsPerDay - $booked);
             $availability[$date->toDateString()] = $remaining;
         }
@@ -44,7 +49,6 @@ class CalendarController extends Controller
 
         while ($start <= $end) {
             $formatted = $start->format('H:i');
-            // Vérifier si ce créneau est déjà réservé
             $exists = Appointment::whereDate('date', $date)
                                 ->where('time', $formatted)
                                 ->exists();
@@ -57,7 +61,7 @@ class CalendarController extends Controller
         return response()->json($slots);
     }
 
-    // Enregistrer le rendez-vous (avec redirection et message flash)
+    // Enregistrer le rendez‑vous et retourner JSON (pour l’appel AJAX de la modale)
     public function store(Request $request)
     {
         $request->validate([
@@ -70,12 +74,15 @@ class CalendarController extends Controller
             'age' => 'nullable|integer|min:0|max:120',
         ]);
 
-        // Vérifier à nouveau que le créneau n'est pas pris (entre temps)
+        // Vérifier que le créneau n’est pas déjà pris (double réservation)
         $exists = Appointment::where('date', $request->date)
                             ->where('time', $request->time)
                             ->exists();
         if ($exists) {
-            return redirect()->back()->with('error', 'Désolé, ce créneau vient d’être pris. Veuillez en choisir un autre.');
+            return response()->json([
+                'success' => false,
+                'message' => 'Désolé, ce créneau vient d’être pris. Veuillez en choisir un autre.'
+            ], 409);
         }
 
         Appointment::create([
@@ -88,6 +95,6 @@ class CalendarController extends Controller
             'age' => $request->age,
         ]);
 
-return redirect('/rdv?success=1');
+        return response()->json(['success' => true]);
     }
 }
