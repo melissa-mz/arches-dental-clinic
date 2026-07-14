@@ -1,6 +1,0 @@
-services:
-  - type: static
-    name: sahraouidental
-    runtime: static
-    buildCommand: ""
-    staticPublishPath: .
